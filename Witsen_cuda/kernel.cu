@@ -48,9 +48,9 @@ double pn[Nn];
 double sumn, sumx;
 
 //For CUDA. Change all 3.
-#define CUDA_TYPE float //double or float
-#define CUDA_EXP expf //exp or expf
-#define CUDA_POW powf //pow or powf
+#define CUDA_TYPE double //double or float
+#define CUDA_EXP exp //exp or expf
+#define CUDA_POW pow //pow or powf
 #define CUDA_METHOD  1 // 1:original or 2:Nn blocks
 
 CUDA_TYPE *d_g, *d_kcst, *result, *d_X, *d_px, *d_n, *d_pn;
@@ -471,27 +471,28 @@ __global__ void calcDescentKernel1(CUDA_TYPE *d_g, CUDA_TYPE *d_X, CUDA_TYPE *d_
 	CUDA_TYPE temp2 = 0;
 	CUDA_TYPE temp1der = 0;
 	CUDA_TYPE temp2der = 0;
-
 	CUDA_TYPE y_temp1, t_temp1, c_temp1 = 0.0;
-	for (int i = 0; i < Nx * Nn; i++) {
-		//thisDP += (double)r_t[i];
-		y = (double)r_t[i] - c;
-		t = thisDP + y;
-		c = (t - thisDP) - y;
-		thisDP = t;
-	}
-
-
+	CUDA_TYPE y_temp2, t_temp2, c_temp2 = 0.0;
+	CUDA_TYPE y_temp1der, t_temp1der, c_temp1der = 0.0;
+	CUDA_TYPE y_temp2der, t_temp2der, c_temp2der = 0.0;
 	for (int ix2 = 0; ix2<Nx; ix2++) {
 		CUDA_TYPE tm = CUDA_EXP(-(d_g[i] + d_X[i] + d_n[e] - d_g[ix2] - d_X[ix2]) * (d_g[i] + d_X[i] + d_n[e] - d_g[ix2] - d_X[ix2]) / (2.0*Nstdv*Nstdv))*d_px[ix2];
 		y_temp1 = (d_g[ix2] + d_X[ix2]) * tm - c_temp1;
 		t_temp1 = temp1 + y_temp1;
 		c_temp1 = (t_temp1 - temp1) - y_temp1;
 		temp1 = t_temp1;
-		temp1 += (d_g[ix2] + d_X[ix2])*tm;
-		temp2 += tm;
-		temp1der += (d_g[ix2] + d_X[ix2])*tm*(-(d_g[i] + d_X[i] + d_n[e] - d_g[ix2] - d_X[ix2]));
-		temp2der += tm*(-(d_g[i] + d_X[i] + d_n[e] - d_g[ix2] - d_X[ix2]));
+		y_temp2 = tm - c_temp2;
+		t_temp2 = temp2 + y_temp2;
+		c_temp2 = (t_temp2 - temp2) - y_temp2;
+		temp2 = t_temp2;
+		y_temp1der = (d_g[ix2] + d_X[ix2]) * tm * (-(d_g[i] + d_X[i] + d_n[e] - d_g[ix2] - d_X[ix2])) - c_temp1der;
+		t_temp1der = temp1der + y_temp1der;
+		c_temp1der = (t_temp1der - temp1der) - y_temp1der;
+		temp1der = t_temp1der;
+		y_temp2der = tm * (-(d_g[i] + d_X[i] + d_n[e] - d_g[ix2] - d_X[ix2])) - c_temp2der;
+		t_temp2der = temp2der + y_temp2der;
+		c_temp2der = (t_temp2der - temp2der) - y_temp2der;
+		temp2der = t_temp2der;
 	}
 	d_result[threadIdx.x + blockIdx.x * blockDim.x] = ((d_X[i] + d_g[i] - temp1 / temp2)*(1 - (temp1der / temp2 - (temp2der / temp2)*(temp1 / temp2))) + (*d_kcst) * (*d_kcst)*d_g[i])*d_px[i] * d_pn[e];
 }
@@ -523,10 +524,18 @@ __global__ void calcDPKernel1(CUDA_TYPE *d_g, CUDA_TYPE *d_X, CUDA_TYPE *d_px, C
 	
 	CUDA_TYPE temp1 = 0;
 	CUDA_TYPE temp2 = 0;
+	CUDA_TYPE y_temp1, t_temp1, c_temp1 = 0.0;
+	CUDA_TYPE y_temp2, t_temp2, c_temp2 = 0.0;
 	for (int ix2 = 0; ix2<Nx; ix2++) {
 		CUDA_TYPE tm = CUDA_EXP(-(d_g[ix] + d_X[ix] + d_n[in] - d_g[ix2] - d_X[ix2]) * (d_g[ix] + d_X[ix] + d_n[in] - d_g[ix2] - d_X[ix2]) / (2.0*Nstdv*Nstdv))* d_px[ix2];
-		temp1 += (d_g[ix2] + d_X[ix2])*tm;
-		temp2 += tm;
+		y_temp1 = (d_g[ix2] + d_X[ix2]) * tm - c_temp1;
+		t_temp1 = temp1 + y_temp1;
+		c_temp1 = (t_temp1 - temp1) - y_temp1;
+		temp1 = t_temp1;
+		y_temp2 = tm - c_temp2;
+		t_temp2 = temp2 + y_temp2;
+		c_temp2 = (t_temp2 - temp2) - y_temp2;
+		temp2 = t_temp2;
 	}
 	d_result[threadIdx.x + blockIdx.x * blockDim.x] = (CUDA_POW(d_X[ix] + d_g[ix] - temp1 / temp2, 2) + (*d_kcst) * (*d_kcst) * d_g[ix] * d_g[ix])*d_px[ix] * d_pn[in];
 }
@@ -578,8 +587,12 @@ void calcDescent_par1(void)
 
 	for (int i = 0; i < Nx; i++){
 		gdescent[i] = 0;
+		double y, t, c = 0.0;
 		for (int e = 0; e < Nn; e++){
-			gdescent[i] += (double)r_t[i*Nn + e];
+			y = (double)r_t[i * Nn + e] - c;
+			t = gdescent[i] + y;
+			c = (t - gdescent[i]) - y;
+			gdescent[i] = t;
 		}
 	}
 }
