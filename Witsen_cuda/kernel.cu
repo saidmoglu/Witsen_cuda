@@ -471,8 +471,23 @@ __global__ void calcDescentKernel1(CUDA_TYPE *d_g, CUDA_TYPE *d_X, CUDA_TYPE *d_
 	CUDA_TYPE temp2 = 0;
 	CUDA_TYPE temp1der = 0;
 	CUDA_TYPE temp2der = 0;
+
+	CUDA_TYPE y_temp1, t_temp1, c_temp1 = 0.0;
+	for (int i = 0; i < Nx * Nn; i++) {
+		//thisDP += (double)r_t[i];
+		y = (double)r_t[i] - c;
+		t = thisDP + y;
+		c = (t - thisDP) - y;
+		thisDP = t;
+	}
+
+
 	for (int ix2 = 0; ix2<Nx; ix2++) {
 		CUDA_TYPE tm = CUDA_EXP(-(d_g[i] + d_X[i] + d_n[e] - d_g[ix2] - d_X[ix2]) * (d_g[i] + d_X[i] + d_n[e] - d_g[ix2] - d_X[ix2]) / (2.0*Nstdv*Nstdv))*d_px[ix2];
+		y_temp1 = (d_g[ix2] + d_X[ix2]) * tm - c_temp1;
+		t_temp1 = temp1 + y_temp1;
+		c_temp1 = (t_temp1 - temp1) - y_temp1;
+		temp1 = t_temp1;
 		temp1 += (d_g[ix2] + d_X[ix2])*tm;
 		temp2 += tm;
 		temp1der += (d_g[ix2] + d_X[ix2])*tm*(-(d_g[i] + d_X[i] + d_n[e] - d_g[ix2] - d_X[ix2]));
